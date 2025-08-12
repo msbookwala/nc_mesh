@@ -71,16 +71,21 @@ def compute_lagrange_basis_matrix(points, nodes):
         N[i, closest_indices[1]] = b
     return N
 
-def get_sampling_points(nodes, index=1):
+def get_sampling_points(nodes, npts=2):
     # generate sampling points on gauss points along the edges of the elements
     # hard coded for 2D elements along the y edge at x = 1
-    index = 1
-    sp = np.zeros((2*(len(nodes)-1), 2),)
+    sp = np.zeros((npts*(len(nodes)-1), 2),)
     cur = 0
-    for i in range(len(nodes)-1):
-        for xi in [-1/np.sqrt(3), 1/np.sqrt(3)]:
+    if npts==2:
+        for i in range(len(nodes)-1):
+            for xi in [-1/np.sqrt(3), 1/np.sqrt(3)]:
+                sp[cur, 0] = 1
+                sp[cur, 1] = N_1d(xi) @ nodes[i:i+2, 1]
+                cur +=1
+    if npts==1:
+        for i in range(len(nodes)-1):
             sp[cur, 0] = 1
-            sp[cur, 1] = N_1d(xi) @ nodes[i:i+2, index]
+            sp[cur, 1] = N_1d(0) @ nodes[i:i+2, 1]
             cur +=1
     return sp
 
@@ -90,11 +95,20 @@ def compute_shepard_basis_matrix(points, nodes):
     for i, point in enumerate(points):
         denom = 0
         wt = np.zeros(len(nodes))
+        coinciding = False
         for j in range(len(nodes)):
+            if np.linalg.norm(point - nodes[j]) == 0:
+                coinciding = True
+                ci = j
+                break
             wt[j] = 1/np.linalg.norm(point - nodes[j])**2
             denom += wt[j]
             N[i, j] = wt[j]
-        N[i,:] /= denom
+        if coinciding:
+            N[i, :] = 0
+            N[i, ci] = 1
+        else:
+            N[i,:] /= denom
     return N
 
 def get_closest_nodes(point, nodes):
@@ -170,16 +184,18 @@ if __name__ == "__main__":
     # Generate N and Psi matrices for both domains
     ##############################################################################################################
 
-    sampling_points1 = get_sampling_points(nodes1[interface_nodes1, :])
+    sampling_points1 = get_sampling_points(nodes1[interface_nodes1, :], npts=1)
     N1 = compute_lagrange_basis_matrix(sampling_points1, nodes1[interface_nodes1, :])
     psi1 = compute_shepard_basis_matrix(sampling_points1, interface_nodes)
-    N1_plus = np.linalg.inv(N1.T @ N1) @ N1.T
+    # N1_plus = np.linalg.inv(N1.T @ N1) @ N1.T
+    N1_plus = N1.T@np.linalg.inv(N1 @ N1.T)
     R1 = N1_plus @ psi1
 
-    sampling_points2 = get_sampling_points(nodes2[interface_nodes2, :])
+    sampling_points2 = get_sampling_points(nodes2[interface_nodes2, :], npts=1)
     N2 = compute_lagrange_basis_matrix(sampling_points2, nodes2[interface_nodes2, :])
     psi2 = compute_shepard_basis_matrix(sampling_points2, interface_nodes)
-    N2_plus = np.linalg.inv(N2.T @ N2) @ N2.T
+    # N2_plus = np.linalg.inv(N2.T @ N2) @ N2.T
+    N2_plus =   N2.T @ np.linalg.inv(N2 @ N2.T)
     R2  = N2_plus @ psi2
 
     #############################################################################################################
