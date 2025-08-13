@@ -50,7 +50,7 @@ def elem_jacobian(xi, eta, coords):
 
 def integrandK(xi, eta, coords):
     J, detJ, invJ = elem_jacobian(xi, eta, coords)
-    B=   dN_dxi(xi, eta).T@invJ
+    B=   dN_dxi(xi, eta).T@invJ.T
     return B@ B.T * detJ
 
 def assemble_stiffness_matrix(nodes, elements):
@@ -76,21 +76,21 @@ def get_sampling_points(nodes, npts=2):
     # hard coded for 2D elements along the y edge at x = 1
     sp = np.zeros((npts*(len(nodes)-1), 2),)
     cur = 0
-    if npts==2:
-        for i in range(len(nodes)-1):
-            for xi in [-1/np.sqrt(3), 1/np.sqrt(3)]:
-                sp[cur, 0] = 1
-                sp[cur, 1] = N_1d(xi) @ nodes[i:i+2, 1]
-                cur +=1
-    if npts==1:
-        for i in range(len(nodes)-1):
+    # if npts==2:
+    #     for i in range(len(nodes)-1):
+    #         for xi in [-1/np.sqrt(3), 1/np.sqrt(3)]:
+    #             sp[cur, 0] = 1
+    #             sp[cur, 1] = N_1d(xi) @ nodes[i:i+2, 1]
+    #             cur +=1
+    xis = np.linspace(-1, 1, npts+2)[1:-1]  # exclude endpoints
+    for i in range(len(nodes)-1):
+        for xi in xis:
             sp[cur, 0] = 1
-            sp[cur, 1] = N_1d(0) @ nodes[i:i+2, 1]
+            sp[cur, 1] = N_1d(xi) @ nodes[i:i+2, 1]
             cur +=1
     return sp
 
 def compute_shepard_basis_matrix(points, nodes):
-    # TODO: if points coincide with nodes-> singularity
     N = np.zeros((len(points), len(nodes)))
     for i, point in enumerate(points):
         denom = 0
@@ -157,20 +157,20 @@ if __name__ == "__main__":
     F2[[3,5]] += 1/3
     F2[[5,7]] += 1/3
 
+    F1[[1,3]] += 1/2
+    F1[[3,5]] += 1/2
+
+    F2[[0,2]] += -1/3
+    F2[[2,4]] += -1/3
+    F2[[4,6]] += -1/3
+
+
     # penalty method -> bottom right node of mesh 2 has temp = 0
     b = 1e4
+
     K2[1,1] += b
     F2[1] += b
 
-    # u2 = spla.spsolve(sp.csr_matrix(K2), F2)
-    # plt.figure()
-    # sc =plt.scatter(nodes2[:,0], nodes2[:,1], c=u2, cmap='viridis', s=100)
-    # plt.colorbar(sc)
-    # plt.title('Temperature Distribution')
-    # plt.xlabel('X')
-    # plt.ylabel('Y')
-    # plt.grid()
-    # plt.show()
 
     # hard coded the boundary and internal nodes for the example
     interface_nodes1 = [1, 3, 5]
@@ -183,20 +183,25 @@ if __name__ == "__main__":
     ##############################################################################################################
     # Generate N and Psi matrices for both domains
     ##############################################################################################################
+    n_sampling_pts = 2
 
-    sampling_points1 = get_sampling_points(nodes1[interface_nodes1, :], npts=1)
+    sampling_points1 = get_sampling_points(nodes1[interface_nodes1, :], npts=n_sampling_pts)
     N1 = compute_lagrange_basis_matrix(sampling_points1, nodes1[interface_nodes1, :])
     psi1 = compute_shepard_basis_matrix(sampling_points1, interface_nodes)
-    # N1_plus = np.linalg.inv(N1.T @ N1) @ N1.T
-    N1_plus = N1.T@np.linalg.inv(N1 @ N1.T)
+    N1_plus = np.linalg.inv(N1.T @ N1) @ N1.T
     R1 = N1_plus @ psi1
 
-    sampling_points2 = get_sampling_points(nodes2[interface_nodes2, :], npts=1)
+    sampling_points2 = get_sampling_points(nodes2[interface_nodes2, :], npts=n_sampling_pts)
     N2 = compute_lagrange_basis_matrix(sampling_points2, nodes2[interface_nodes2, :])
     psi2 = compute_shepard_basis_matrix(sampling_points2, interface_nodes)
-    # N2_plus = np.linalg.inv(N2.T @ N2) @ N2.T
-    N2_plus =   N2.T @ np.linalg.inv(N2 @ N2.T)
+    N2_plus = np.linalg.inv(N2.T @ N2) @ N2.T
     R2  = N2_plus @ psi2
+
+    Tf1 = np.array([[-1],[-1],[-1],[-1],[-1]])
+
+    T_i1 = np.array([[-1],[-1],[-1]])  # internal nodes of domain 1
+    RTf1 = R1 @ Tf1
+
 
     #############################################################################################################
     # Assemble the modified stiffness matrices and force vectors for both domains
@@ -224,7 +229,6 @@ if __name__ == "__main__":
     K_mod2[li2:, li2:] = R2.T @ K2[interface_nodes2, :][:, interface_nodes2] @ R2
     f_mod2[:li2, 0] = F2[internal_nodes2, 0]
     f_mod2[li2:, 0] = R2.T @ F2[interface_nodes2, 0]
-
 
     #########################################################################################################################
     # Assemble the final global stiffness matrix and force vector
@@ -263,15 +267,17 @@ if __name__ == "__main__":
                           [2,2/3],
                           [2,4/3],
                           [2,2]])
-    plt.figure(dpi=1000)
-    sc =plt.scatter(nodes_all[:,0], nodes_all[:,1], c=u_fin, cmap='viridis', s=100)
+    plt.figure()
+    sc =plt.scatter(nodes_all[:,0], nodes_all[:,1], c=u_fin, s=100)
     plt.colorbar(sc)
-    plt.title('Temperature Distribution')
+    plt.title(f'Temperature Distribution -{n_sampling_pts} sampling points')
     plt.xlabel('X')
     plt.ylabel('Y')
+    plt.xlim(-0.2,2.2)
+    plt.ylim(-0.2, 2.2)
     plt.grid()
     for i in range(len(nodes_all)):
-        plt.text(nodes_all[i, 0], nodes_all[i, 1], f'{u_fin[i]:.4f}', fontsize=9, ha='left', va='bottom')
+        plt.text(nodes_all[i, 0], nodes_all[i, 1]+0.05, f'{u_fin[i]:.4f}', fontsize=9, ha='left', va='bottom')
 
     plt.show()
 
