@@ -157,12 +157,12 @@ if __name__ == "__main__":
     F2[[3,5]] += 1/3
     F2[[5,7]] += 1/3
 
-    F1[[1,3]] += 1/2
-    F1[[3,5]] += 1/2
-
-    F2[[0,2]] += -1/3
-    F2[[2,4]] += -1/3
-    F2[[4,6]] += -1/3
+    # F1[[1,3]] += 1/2
+    # F1[[3,5]] += 1/2
+    #
+    # F2[[0,2]] += -1/3
+    # F2[[2,4]] += -1/3
+    # F2[[4,6]] += -1/3
 
 
     # penalty method -> bottom right node of mesh 2 has temp = 0
@@ -191,11 +191,24 @@ if __name__ == "__main__":
     N1_plus = np.linalg.inv(N1.T @ N1) @ N1.T
     R1 = N1_plus @ psi1
 
+    # R1 = np.zeros((len(interface_nodes1), len(interface_nodes)))
+    # R1[0, 0] = 1
+    # R1[1, 2] = 1
+    # R1[2, 4] = 1
+
+
     sampling_points2 = get_sampling_points(nodes2[interface_nodes2, :], npts=n_sampling_pts)
     N2 = compute_lagrange_basis_matrix(sampling_points2, nodes2[interface_nodes2, :])
     psi2 = compute_shepard_basis_matrix(sampling_points2, interface_nodes)
     N2_plus = np.linalg.inv(N2.T @ N2) @ N2.T
     R2  = N2_plus @ psi2
+
+    # R2 = np.zeros((len(interface_nodes2), len(interface_nodes)))
+    # R2[0, 0] = 1
+    # R2[1, 1] = 1
+    # R2[2, 3] = 1
+    # R2[3, 4] = 1
+
 
     Tf1 = np.array([[-1],[-1],[-1],[-1],[-1]])
 
@@ -250,6 +263,7 @@ if __name__ == "__main__":
     F_fin[K2_mapping,] += f_mod2
 
     u_fin = spla.spsolve(sp.csr_matrix(K_fin), F_fin)
+
 
     ###########################################################################################################################
     # Plotting the results
