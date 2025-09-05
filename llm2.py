@@ -33,6 +33,15 @@ def gauss_quadrature2D(func, coords, order=2):
             integral += (func(xi, eta, coords))
     return integral
 
+def gauss_quadrature1D(func, coords, order=2):
+    if order != 2:
+        raise ValueError("Unsupported order for Gauss quadrature")
+    points = np.array([-1/np.sqrt(3), 1/np.sqrt(3)])
+    weights = np.array([1.0, 1.0])
+    integral = 0.0
+    for xi in points:
+        integral += func(xi, coords)
+    return integral
 
 def elem_jacobian(xi, eta, coords):
     dNdxi, dNdeta = dN_dxi(xi, eta)[0, :], dN_dxi(xi, eta)[1, :]
@@ -50,6 +59,19 @@ def integrandK(xi, eta, coords):
     J, detJ, invJ = elem_jacobian(xi, eta, coords)
     B = dN_dxi(xi, eta).T @ invJ.T
     return (B @ B.T) * detJ
+
+def integrandM_1d(xi, coords):
+    Nvec = N_1d(xi)
+    J = np.linalg.norm(coords[1] - coords[0]) / 2
+    return np.outer(Nvec, Nvec) * J
+
+def assemble_mass_matrix_1d(nodes, elements):
+    num_nodes = nodes.shape[0]
+    M = np.zeros((num_nodes, num_nodes))
+    for elem in elements:
+        coords = nodes[elem]
+        M[np.ix_(elem, elem)] += gauss_quadrature1D(integrandM_1d, coords)
+    return M
 
 
 def assemble_stiffness_matrix(nodes, elements):
@@ -153,9 +175,9 @@ if __name__ == "__main__":
 
     F1[[0, 2]] += -0.5
     F1[[2, 4]] += -0.5
-    # F2[[1, 3]] +=  1/3
-    # F2[[3, 5]] +=  1/3
-    # F2[[5, 7]] +=  1/3
+    F2[[1, 3]] +=  1/3
+    F2[[3, 5]] +=  1/3
+    F2[[5, 7]] +=  1/3
 
     # F1[1] += 1
     # F1[5] += 1
@@ -168,114 +190,97 @@ if __name__ == "__main__":
     K2[1, 1] += b
     F2[1]    += b*T0
 
+    # K1[4,4] += b
+    # F1[4]    += b*1.0
+
+
     interface_nodes1 = [1, 3, 5]
     interface_nodes2 = [0, 2, 4, 6]
     internal_nodes1  = [0, 2, 4]
     internal_nodes2  = [1, 3, 5, 7]
 
-    interface_nodes = np.array([[1,0],
-                                [1,2/3],
-                                [1,1],
-                                [1,4/3],
-                                [1,2]])
+    num_interface_nodes = 7
+    y_vals = np.linspace(0, 2, num_interface_nodes)
+    interface_nodes = np.column_stack((np.ones(num_interface_nodes), y_vals))
+    interface_elements = np.array([[i, i + 1] for i in range(num_interface_nodes - 1)])
 
-    n_sampling_pts = 2
-    sp1  = get_sampling_points(nodes1[interface_nodes1, :], npts=n_sampling_pts)
-    N1   = compute_lagrange_basis_matrix(sp1, nodes1[interface_nodes1, :])
-    psi1 = compute_shepard_basis_matrix(sp1, interface_nodes)
-    R1   = np.linalg.inv(N1.T @ N1) @ N1.T @ psi1
 
-    sp2  = get_sampling_points(nodes2[interface_nodes2, :], npts=n_sampling_pts)
-    N2   = compute_lagrange_basis_matrix(sp2, nodes2[interface_nodes2, :])
-    psi2 = compute_shepard_basis_matrix(sp2, interface_nodes)
-    R2   = np.linalg.inv(N2.T @ N2) @ N2.T @ psi2
 
     li1 = len(internal_nodes1)
     li2 = len(internal_nodes2)
     nb  = len(interface_nodes)  # frame size
 
-    K_mod1 = np.zeros((li1+nb, li1+nb))
-    K_mod2 = np.zeros((li2+nb, li2+nb))
-    f_mod1 = np.zeros((li1+nb, 1))
-    f_mod2 = np.zeros((li2+nb, 1))
+    Gamma1 = compute_lagrange_basis_matrix(interface_nodes, nodes1[interface_nodes1])
+    Gamma2 = compute_lagrange_basis_matrix(interface_nodes, nodes2[interface_nodes2])
+    M = assemble_mass_matrix_1d(interface_nodes, interface_elements)
 
-    # domain 1
-    K_mod1[:li1, :li1] = K1[np.ix_(internal_nodes1, internal_nodes1)]
-    K_mod1[:li1, li1:] = K1[np.ix_(internal_nodes1, interface_nodes1)] @ R1
-    K_mod1[li1:, :li1] = R1.T @ K1[np.ix_(interface_nodes1, internal_nodes1)]
-    K_mod1[li1:, li1:] = R1.T @ K1[np.ix_(interface_nodes1, interface_nodes1)] @ R1
-    f_mod1[:li1, 0]    = F1[internal_nodes1, 0]
-    f_mod1[li1:, 0]    = R1.T @ F1[interface_nodes1, 0]
-
-    # domain 2
-    K_mod2[:li2, :li2] = K2[np.ix_(internal_nodes2, internal_nodes2)]
-    K_mod2[:li2, li2:] = K2[np.ix_(internal_nodes2, interface_nodes2)] @ R2
-    K_mod2[li2:, :li2] = R2.T @ K2[np.ix_(interface_nodes2, internal_nodes2)]
-    K_mod2[li2:, li2:] = R2.T @ K2[np.ix_(interface_nodes2, interface_nodes2)] @ R2
-    f_mod2[:li2, 0]    = F2[internal_nodes2, 0]
-    f_mod2[li2:, 0]    = R2.T @ F2[interface_nodes2, 0]
+    B1 = M@Gamma1
+    B2 = -M@Gamma2
 
 
-    quad_pts = interface_quad(interface_nodes, npts=n_sampling_pts)
-
-    length = li1 + nb + li2 + nb
+    length = nodes1.shape[0] + nodes2.shape[0] + nb
     K_fin  = np.zeros((length, length))
     F_fin  = np.zeros((length, 1))
 
-    K1_mapping = [0,1,2,3,4,5,6,7]
-    K2_mapping = [8,9,10,11,3,4,5,6,7]
+    K1_mapping = [0,1,2,3,4,5]
+    K2_mapping = [6,7,8,9,10,11,12,13]
+    lam_mapping = [14+i for i in range(nb)]
 
-    K_fin[np.ix_(K1_mapping, K1_mapping)] += K_mod1
-    K_fin[np.ix_(K2_mapping, K2_mapping)] += K_mod2
-    F_fin[K1_mapping, :] += f_mod1
-    F_fin[K2_mapping, :] += f_mod2
+    K_fin[np.ix_(K1_mapping, K1_mapping)] += K1
+    K_fin[np.ix_(K2_mapping, K2_mapping)] += K2
+    F_fin[K1_mapping, :] += F1
+    F_fin[K2_mapping, :] += F2
 
-
-    B_ = np.zeros((nb, nb))
-    for i in range(nb-1):
-        q_pts = quad_pts[2*i:2*i+2]
-        for j in [0,1]:
-            q = q_pts[j]
-            nodes1_ = get_closest_nodes(q, nodes1[interface_nodes1])
-            nodes2_ = get_closest_nodes(q, nodes2[interface_nodes2])
-            nodes1_cords = nodes1[np.array(interface_nodes1)[nodes1_]]
-            nodes2_cords = nodes2[np.array(interface_nodes2)[nodes2_]]
-            N_ = N_1d(np.array([-1/np.sqrt(3), 1/np.sqrt(3)]))
-            N1_ = compute_lagrange_basis_matrix(q_pts, nodes1_cords)
-            N2_ = compute_lagrange_basis_matrix(q_pts, nodes2_cords)
-            le = np.linalg.norm(interface_nodes[i] - interface_nodes[i+1])
-            B_[[i,i+1],:] += N_[[j],:].T @ ((N1_[[j],:] @ R1[nodes1_, :]) - (N2_[[j],:]@ R2[nodes2_, :])) * le * 0.5
+    K_fin[np.ix_([K1_mapping[i] for i in interface_nodes1], lam_mapping)] += B1.T
+    K_fin[np.ix_(lam_mapping, [K1_mapping[i] for i in interface_nodes1])] += B1
+    K_fin[np.ix_([K2_mapping[i] for i in interface_nodes2], lam_mapping)] += B2.T
+    K_fin[np.ix_(lam_mapping, [K2_mapping[i] for i in interface_nodes2])] += B2
 
 
-
+    # compute rank of B1 and B2
+    print("Rank of B1:", np.linalg.matrix_rank(B1))
+    print("Rank of B2:", np.linalg.matrix_rank(B2))
     # print(B_)
-    iface = [3,4,5,6,7]
-    ilam = [12,13,14,15,16]
-    K_fin[np.ix_(iface, ilam)] += B_.T
-    K_fin[np.ix_(ilam, iface)] += B_
+
+
+
 
     u_fin = spla.spsolve(sp.csr_matrix(K_fin), F_fin)
 
-    nodes_all = np.array([[0,0],
-                          [0,1],
-                          [0,2],
-                          [1,0],
-                          [1,2/3],
-                          [1,1],
-                          [1,4/3],
-                          [1,2],
-                          [2,0],
-                          [2,2/3],
-                          [2,4/3],
-                          [2,2]])
+    # nodes_all = np.array([[0,0],
+    #                       [0,1],
+    #                       [0,2],
+    #                       [1,0],
+    #                       [1,2/3],
+    #                       [1,1],
+    #                       [1,4/3],
+    #                       [1,2],
+    #                       [2,0],
+    #                       [2,2/3],
+    #                       [2,4/3],
+    #                       [2,2]])
     plt.figure()
-    sc = plt.scatter(nodes_all[:, 0], nodes_all[:, 1], c=u_fin[:12], s=100)
-    plt.colorbar(sc)
-    plt.title(f'Temperature Distribution - {n_sampling_pts} sampling points (lagrange)')
+    sc1 = plt.scatter(nodes1[:, 0], nodes1[:, 1], c=u_fin[K1_mapping], s=100)
+    plt.colorbar(sc1)
+
+    plt.title(f'Temperature Distribution  (lagrange only)')
+
     plt.xlabel('X'); plt.ylabel('Y')
     plt.xlim(-0.2, 2.2); plt.ylim(-0.2, 2.2)
     plt.grid(True)
-    for i in range(len(nodes_all)):
-        plt.text(nodes_all[i, 0], nodes_all[i, 1] + 0.05, f'{u_fin[i]:.4f}', fontsize=9,
+    for i in range(len(nodes1)):
+        plt.text(nodes1[i, 0], nodes1[i, 1] + 0.05, f'{u_fin[i]:.4f}', fontsize=9,
+                 ha='left', va='bottom')
+    plt.show()
+
+    plt.figure()
+    sc2 = plt.scatter(nodes2[:, 0], nodes2[:, 1], c=u_fin[K2_mapping], s=100, marker='s')
+    plt.colorbar(sc2)
+    plt.title(f'Temperature Distribution  (lagrange only)')
+    plt.xlabel('X'); plt.ylabel('Y')
+    plt.xlim(-0.2, 2.2); plt.ylim(-0.2, 2.2)
+    plt.grid(True)
+    for i in range(len(nodes2)):
+        plt.text(nodes2[i, 0], nodes2[i, 1] + 0.05, f'{u_fin[i+6]:.4f}', fontsize=9,
                  ha='left', va='bottom')
     plt.show()

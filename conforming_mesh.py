@@ -157,14 +157,14 @@ if __name__ == "__main__":
     F1[[3,6]] += -1/3
     F1[[6,9]] += -1/3
 
-    F1[[2,5]] += 1/3
-    F1[[5,8]] += 1/3
-    F1[[8,11]] += 1/3
+    # F1[[2,5]] += 1/3
+    # F1[[5,8]] += 1/3
+    # F1[[8,11]] += 1/3
 
     # penalty method -> bottom right node of mesh 2 has temp = 0
     b = 1e4
     K1[2,2] += b
-    F1[2] += b
+    F1[2] += 0
 
     u1 = spla.spsolve(sp.csr_matrix(K1), F1)
     plt.figure()
@@ -175,7 +175,7 @@ if __name__ == "__main__":
     plt.ylabel('Y')
     plt.grid()
     for i in range(len(nodes1)):
-        plt.text(nodes1[i, 0], nodes1[i, 1], f'{u1[i]:.4f}', fontsize=9, ha='left', va='bottom')
+        plt.text(nodes1[i, 0], nodes1[i, 1]+0.05, f'{u1[i]:.4f}', fontsize=9, ha='left', va='bottom')
     plt.show()
 
     # F1[[ 5]] += 1 / 3

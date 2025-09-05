@@ -263,6 +263,10 @@ if __name__ == "__main__":
     F_fin[K2_mapping,] += f_mod2
 
     u_fin = spla.spsolve(sp.csr_matrix(K_fin), F_fin)
+    u_frame = u_fin[3:8]
+    ub1 = R1 @ u_frame
+    ub2 = R2 @ u_frame
+
 
 
     ###########################################################################################################################
@@ -294,7 +298,7 @@ if __name__ == "__main__":
         plt.text(nodes_all[i, 0], nodes_all[i, 1]+0.05, f'{u_fin[i]:.4f}', fontsize=9, ha='left', va='bottom')
 
     plt.show()
-
+    a = 0
 
 
 

@@ -151,8 +151,8 @@ if __name__ == "__main__":
     K2, F2 = assemble_stiffness_matrix(nodes2, elements2)
 
 
-    F1[[0, 2]] += -0.5
-    F1[[2, 4]] += -0.5
+    # F1[[0, 2]] += -0.5
+    # F1[[2, 4]] += -0.5
     # F2[[1, 3]] +=  1/3
     # F2[[3, 5]] +=  1/3
     # F2[[5, 7]] +=  1/3
@@ -167,6 +167,10 @@ if __name__ == "__main__":
     T0 = 0.0
     K2[1, 1] += b
     F2[1]    += b*T0
+
+    K1[4,4] += b
+    F1[4]    += b*1.0
+
 
     interface_nodes1 = [1, 3, 5]
     interface_nodes2 = [0, 2, 4, 6]
@@ -218,20 +222,22 @@ if __name__ == "__main__":
 
     quad_pts = interface_quad(interface_nodes, npts=n_sampling_pts)
 
-    length = li1 + nb + li2 + nb
+    length = nodes1.shape[0] + nodes2.shape[0] + nb
     K_fin  = np.zeros((length, length))
     F_fin  = np.zeros((length, 1))
 
-    K1_mapping = [0,1,2,3,4,5,6,7]
-    K2_mapping = [8,9,10,11,3,4,5,6,7]
+    K1_mapping = [0,1,2,3,4,5]
+    K2_mapping = [6,7,8,9,10,11,12,13]
 
-    K_fin[np.ix_(K1_mapping, K1_mapping)] += K_mod1
-    K_fin[np.ix_(K2_mapping, K2_mapping)] += K_mod2
-    F_fin[K1_mapping, :] += f_mod1
-    F_fin[K2_mapping, :] += f_mod2
+    K_fin[np.ix_(K1_mapping, K1_mapping)] += K1
+    K_fin[np.ix_(K2_mapping, K2_mapping)] += K2
+    F_fin[K1_mapping, :] += F1
+    F_fin[K2_mapping, :] += F2
 
 
-    B_ = np.zeros((nb, nb))
+    B1 = np.zeros((nb, nodes1.shape[0] ))
+    B2 = np.zeros((nb , nodes2.shape[0] ))
+
     for i in range(nb-1):
         q_pts = quad_pts[2*i:2*i+2]
         for j in [0,1]:
@@ -244,38 +250,51 @@ if __name__ == "__main__":
             N1_ = compute_lagrange_basis_matrix(q_pts, nodes1_cords)
             N2_ = compute_lagrange_basis_matrix(q_pts, nodes2_cords)
             le = np.linalg.norm(interface_nodes[i] - interface_nodes[i+1])
-            B_[[i,i+1],:] += N_[[j],:].T @ ((N1_[[j],:] @ R1[nodes1_, :]) - (N2_[[j],:]@ R2[nodes2_, :])) * le * 0.5
+            current_nodes1 = np.array(interface_nodes1)[nodes1_]
+            current_nodes2 = np.array(interface_nodes2)[nodes2_]
+            # B1[([i,i+1],current_nodes1)] += N_[[j],:].T @ ((N1_[[j],:])) * le * 0.5
+            B1[np.ix_([i,i+1], current_nodes1)] += N_[[j], :].T @ (N1_[[j], :]) * le * 0.5
+            B2[np.ix_([i,i+1], current_nodes2)] += -N_[[j], :].T @ (N2_[[j], :]) * le * 0.5
 
-
-
+    # compute rank of B1 and B2
+    print("Rank of B1:", np.linalg.matrix_rank(B1))
+    print("Rank of B2:", np.linalg.matrix_rank(B2))
     # print(B_)
-    iface = [3,4,5,6,7]
-    ilam = [12,13,14,15,16]
-    K_fin[np.ix_(iface, ilam)] += B_.T
-    K_fin[np.ix_(ilam, iface)] += B_
+    # iface = [3,4,5,6,7]
+    ilam = [14,15,16,17,18]
+    K_fin[np.ix_(K1_mapping, ilam)] += B1.T
+    K_fin[np.ix_(ilam, K1_mapping)] += B1
+    K_fin[np.ix_(K2_mapping, ilam)] += B2.T
+    K_fin[np.ix_(ilam, K2_mapping)] += B2
+
 
     u_fin = spla.spsolve(sp.csr_matrix(K_fin), F_fin)
 
-    nodes_all = np.array([[0,0],
-                          [0,1],
-                          [0,2],
-                          [1,0],
-                          [1,2/3],
-                          [1,1],
-                          [1,4/3],
-                          [1,2],
-                          [2,0],
-                          [2,2/3],
-                          [2,4/3],
-                          [2,2]])
+    # nodes_all = np.array([[0,0],
+    #                       [0,1],
+    #                       [0,2],
+    #                       [1,0],
+    #                       [1,2/3],
+    #                       [1,1],
+    #                       [1,4/3],
+    #                       [1,2],
+    #                       [2,0],
+    #                       [2,2/3],
+    #                       [2,4/3],
+    #                       [2,2]])
     plt.figure()
-    sc = plt.scatter(nodes_all[:, 0], nodes_all[:, 1], c=u_fin[:12], s=100)
-    plt.colorbar(sc)
-    plt.title(f'Temperature Distribution - {n_sampling_pts} sampling points (lagrange)')
+    sc1 = plt.scatter(nodes1[:, 0], nodes1[:, 1], c=u_fin[K1_mapping], s=100)
+    sc2 = plt.scatter(nodes2[:, 0], nodes2[:, 1], c=u_fin[K2_mapping], s=100, marker='s')
+    plt.colorbar(sc1)
+    plt.colorbar(sc2)
+    plt.title(f'Temperature Distribution  (lagrange only)')
     plt.xlabel('X'); plt.ylabel('Y')
     plt.xlim(-0.2, 2.2); plt.ylim(-0.2, 2.2)
     plt.grid(True)
-    for i in range(len(nodes_all)):
-        plt.text(nodes_all[i, 0], nodes_all[i, 1] + 0.05, f'{u_fin[i]:.4f}', fontsize=9,
+    for i in range(len(nodes1)):
+        plt.text(nodes1[i, 0], nodes1[i, 1] + 0.05, f'{u_fin[i]:.4f}', fontsize=9,
+                 ha='left', va='bottom')
+    for i in range(len(nodes2)):
+        plt.text(nodes2[i, 0], nodes2[i, 1] + 0.05, f'{u_fin[i+6]:.4f}', fontsize=9,
                  ha='left', va='bottom')
     plt.show()
